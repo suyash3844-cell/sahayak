@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="mr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#060d18">
+<title>Sahayak AI</title>
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon-192.png">
+<style>
+:root{--bg:#060d18;--panel:#0d1a2b;--line:#1b3550;--cyan:#5ce1ff;--teal:#2bb3a8;--text:#e6f3fb;--dim:#7d9bb3;--me:#12324d}
+*{box-sizing:border-box;margin:0}
+html,body{height:100%;background:var(--bg);color:var(--text);font:16px/1.5 system-ui,"Noto Sans Devanagari",sans-serif}
+body{display:flex;flex-direction:column;padding-top:env(safe-area-inset-top,0);padding-bottom:env(safe-area-inset-bottom,0)}
+header{display:flex;align-items:center;justify-content:space-between;padding:10px 16px}
+header b{font-size:18px;letter-spacing:.02em}
+button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
+#gear{color:var(--dim);font-size:22px;padding:4px 8px}
+.stage{display:flex;flex-direction:column;align-items:center;padding:6px 0 10px}
+#orb{width:110px;height:110px;border-radius:50%;background:radial-gradient(circle at 35% 30%,#d9fbff,var(--cyan) 30%,var(--teal) 62%,#0b3b52);box-shadow:0 0 40px #5ce1ff66,0 0 90px #2bb3a833;animation:idle 4s ease-in-out infinite}
+#orb.listen{animation:pulse .9s ease-in-out infinite;box-shadow:0 0 60px #5ce1ffaa,0 0 120px #5ce1ff55}
+#orb.think{animation:spin 1.2s linear infinite;filter:hue-rotate(40deg)}
+#orb.speak{animation:pulse .5s ease-in-out infinite}
+@keyframes idle{50%{transform:scale(1.04)}}
+@keyframes pulse{50%{transform:scale(1.14)}}
+@keyframes spin{to{transform:rotate(360deg) scale(1.05)}}
+#status{margin-top:10px;color:var(--dim);font-size:13px;min-height:20px}
+#log{flex:1;overflow-y:auto;padding:8px 14px;display:flex;flex-direction:column;gap:10px}
+.m{max-width:86%;padding:10px 14px;border-radius:16px;white-space:pre-wrap;word-wrap:break-word}
+.u{align-self:flex-end;background:var(--me);border-bottom-right-radius:4px}
+.a{align-self:flex-start;background:var(--panel);border:1px solid var(--line);border-bottom-left-radius:4px}
+.empty{margin:auto;color:var(--dim);text-align:center;padding:20px}
+form{display:flex;gap:8px;padding:10px 12px;border-top:1px solid var(--line)}
+#in{flex:1;background:var(--panel);border:1px solid var(--line);border-radius:22px;color:var(--text);padding:11px 16px;font:inherit;outline:0}
+#in:focus{border-color:var(--cyan)}
+.rb{width:46px;height:46px;border-radius:50%;background:var(--panel);border:1px solid var(--line);font-size:20px}
+#send{background:var(--cyan);color:#04202b;border:0}
+#mic.on{background:#ff4d6d;border-color:#ff4d6d}
+dialog{margin:auto;width:min(92vw,420px);background:var(--panel);color:var(--text);border:1px solid var(--line);border-radius:16px;padding:18px}
+dialog::backdrop{background:#000a}
+label{display:block;margin:12px 0 4px;color:var(--dim);font-size:13px}
+dialog input,dialog select,dialog textarea{width:100%;background:var(--bg);border:1px solid var(--line);color:var(--text);border-radius:10px;padding:9px;font:inherit}
+.row{display:flex;gap:8px;margin-top:16px;justify-content:flex-end}
+.row button{padding:9px 16px;border-radius:10px;border:1px solid var(--line)}
+.row .pri{background:var(--cyan);color:#04202b;border:0}
+@media(prefers-reduced-motion:reduce){#orb{animation:none!important}}
+</style>
+</head>
+<body>
+<header><b>Sahayak AI</b><button id="gear" aria-label="Settings">⚙</button></header>
+<div class="stage"><div id="orb"></div><div id="status">तयार</div></div>
+<div id="log"><div class="empty" id="empty">काहीही विचारा. टाइप करा किंवा 🎤 दाबून बोला.</div></div>
+<form id="f">
+  <button type="button" class="rb" id="mic" aria-label="Speak">🎤</button>
+  <input id="in" placeholder="इथे लिहा..." autocomplete="off">
+  <button class="rb" id="send" aria-label="Send">➤</button>
+</form>
+
+<dialog id="dlg">
+  <b>Settings</b>
+  <label>Anthropic API key (sk-ant-...)</label>
+  <input id="key" type="password" placeholder="sk-ant-...">
+  <label>Model</label>
+  <input id="model" value="claude-sonnet-4-6">
+  <label>Voice language</label>
+  <select id="lang"><option value="mr-IN">मराठी</option><option value="hi-IN">हिंदी</option><option value="en-IN">English</option></select>
+  <label>Assistant personality</label>
+  <textarea id="sys" rows="3"></textarea>
+  <label><input type="checkbox" id="tts" checked style="width:auto"> उत्तर बोलून दाखवा</label>
+  <div class="row"><button id="clear">Clear chat</button><button class="pri" id="save">Save</button></div>
+</dialog>
+
+<script>
+const $=id=>document.getElementById(id);
+const S={key:'',model:'claude-sonnet-4-6',lang:'mr-IN',tts:true,
+ sys:'You are Sahayak, a friendly, concise voice assistant. Reply in the same language the user speaks (Marathi, Hindi or English). Keep answers short and clear.'};
+try{Object.assign(S,JSON.parse(localStorage.getItem('sahayak')||'{}'))}catch(e){}
+let hist=[];try{hist=JSON.parse(localStorage.getItem('sahayak_h')||'[]')}catch(e){}
+
+const log=$('log'),orb=$('orb'),stat=$('status');
+function state(c,t){orb.className=c||'';stat.textContent=t||'तयार'}
+function bubble(role,text){
+  const e=$('empty');if(e)e.remove();
+  const d=document.createElement('div');d.className='m '+(role==='user'?'u':'a');d.textContent=text;
+  log.appendChild(d);log.scrollTop=log.scrollHeight;return d;
+}
+function save(){try{localStorage.setItem('sahayak',JSON.stringify(S));localStorage.setItem('sahayak_h',JSON.stringify(hist.slice(-30)))}catch(e){}}
+hist.forEach(m=>bubble(m.role,m.content));
+
+async function ask(text){
+  if(!S.key){$('dlg').showModal();state('','API key टाका');return}
+  bubble('user',text);hist.push({role:'user',content:text});
+  const out=bubble('assistant','…');state('think','विचार करतोय...');
+  try{
+    const r=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',
+      headers:{'content-type':'application/json','x-api-key':S.key,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},
+      body:JSON.stringify({model:S.model,max_tokens:1000,system:S.sys,messages:hist.slice(-20)})});
+    const j=await r.json();
+    if(!r.ok)throw new Error(j.error&&j.error.message||r.status);
+    const a=j.content.filter(x=>x.type==='text').map(x=>x.text).join('\n');
+    out.textContent=a;hist.push({role:'assistant',content:a});save();log.scrollTop=log.scrollHeight;
+    speak(a);
+  }catch(e){hist.pop();out.textContent='Error: '+e.message+'\nAPI key आणि इंटरनेट तपासा.';state('','चूक झाली')}
+}
+
+function speak(t){
+  if(!S.tts||!('speechSynthesis' in window)){state();return}
+  speechSynthesis.cancel();
+  const u=new SpeechSynthesisUtterance(t.replace(/[*#`_]/g,''));u.lang=S.lang;
+  u.onstart=()=>state('speak','बोलतोय...');u.onend=u.onerror=()=>state();
+  speechSynthesis.speak(u);
+}
+
+const SR=window.SpeechRecognition||window.webkitSpeechRecognition;let rec=null;
+$('mic').onclick=()=>{
+  if(!SR){state('','या डिव्हाइसवर voice input नाही');return}
+  if(rec){rec.stop();return}
+  speechSynthesis.cancel();
+  rec=new SR();rec.lang=S.lang;rec.interimResults=false;
+  rec.onstart=()=>{$('mic').classList.add('on');state('listen','ऐकतोय...')};
+  rec.onresult=e=>ask(e.results[0][0].transcript);
+  rec.onerror=e=>state('','Mic error: '+e.error);
+  rec.onend=()=>{rec=null;$('mic').classList.remove('on');if(orb.className==='listen')state()};
+  rec.start();
+};
+
+$('f').onsubmit=e=>{e.preventDefault();const t=$('in').value.trim();if(t){$('in').value='';ask(t)}};
+
+$('gear').onclick=()=>{$('key').value=S.key;$('model').value=S.model;$('lang').value=S.lang;$('sys').value=S.sys;$('tts').checked=S.tts;$('dlg').showModal()};
+$('save').onclick=e=>{e.preventDefault();S.key=$('key').value.trim();S.model=$('model').value.trim();S.lang=$('lang').value;S.sys=$('sys').value;S.tts=$('tts').checked;save();$('dlg').close()};
+$('clear').onclick=e=>{e.preventDefault();hist=[];save();log.innerHTML='<div class="empty" id="empty">नवीन चॅट सुरू.</div>';$('dlg').close()};
+</script>
+</body>
+</html>
